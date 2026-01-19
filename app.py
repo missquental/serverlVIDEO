@@ -1,71 +1,19 @@
 import streamlit as st
 import os
 from datetime import datetime
+import requests
+import json
 
-# Konfigurasi direktori penyimpanan
+# Konfigurasi
+API_BASE_URL = "http://localhost:8000"  # Sesuaikan dengan URL API Anda
 UPLOAD_DIR = "uploaded_videos"
-if not os.path.exists(UPLOAD_DIR):
-    os.makedirs(UPLOAD_DIR)
-
-# Fungsi untuk menyimpan file yang diupload
-def save_uploaded_file(uploaded_file):
-    try:
-        # Buat nama file unik dengan timestamp
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        file_extension = uploaded_file.name.split('.')[-1]
-        new_filename = f"{timestamp}_{uploaded_file.name}"
-        
-        file_path = os.path.join(UPLOAD_DIR, new_filename)
-        
-        with open(file_path, "wb") as f:
-            f.write(uploaded_file.getbuffer())
-        return True, file_path
-    except Exception as e:
-        return False, str(e)
-
-# Fungsi untuk mendapatkan daftar video yang tersimpan
-def get_stored_videos():
-    if not os.path.exists(UPLOAD_DIR):
-        return []
-    
-    video_files = []
-    for filename in os.listdir(UPLOAD_DIR):
-        if filename.endswith(('.mp4', '.avi', '.mov', '.mkv', '.webm')):
-            file_path = os.path.join(UPLOAD_DIR, filename)
-            file_time = os.path.getmtime(file_path)
-            video_files.append({
-                'name': filename,
-                'path': file_path,
-                'size': os.path.getsize(file_path),
-                'date': datetime.fromtimestamp(file_time)
-            })
-    
-    # Urutkan berdasarkan tanggal terbaru
-    video_files.sort(key=lambda x: x['date'], reverse=True)
-    return video_files
-
-# Fungsi untuk menghapus video
-def delete_video(filename):
-    try:
-        file_path = os.path.join(UPLOAD_DIR, filename)
-        if os.path.exists(file_path):
-            os.remove(file_path)
-            return True
-        return False
-    except Exception as e:
-        st.error(f"Error saat menghapus file: {str(e)}")
-        return False
 
 # Judul aplikasi
-st.title("🎥 Video Storage & Upload Manager")
+st.title("🎥 Video Storage & Streaming Manager")
 st.markdown("---")
 
-# Inisialisasi session state untuk refresh
-if 'refresh_key' not in st.session_state:
-    st.session_state.refresh_key = 0
-
 # Tabs untuk navigasi
-tab1, tab2 = st.tabs(["📤 Upload Video", "📁 Video Library"])
+tab1, tab2, tab3 = st.tabs(["📤 Upload Video", "📁 Video Library", "📱 API Info"])
 
 # Tab Upload Video
 with tab1:
@@ -75,18 +23,13 @@ with tab1:
     uploaded_files = st.file_uploader(
         "Pilih satu atau lebih file video",
         type=['mp4', '.avi', '.mov', '.mkv', '.webm'],
-        accept_multiple_files=True,
-        key=f"video_uploader_{st.session_state.refresh_key}"
+        accept_multiple_files=True
     )
     
     if uploaded_files:
         st.subheader("File yang akan diupload:")
         for uploaded_file in uploaded_files:
-            col1, col2 = st.columns([3, 1])
-            with col1:
-                st.write(f"📄 {uploaded_file.name} ({uploaded_file.size:,} bytes)")
-            with col2:
-                st.info(f"Tipe: {uploaded_file.type}")
+            st.write(f"📄 {uploaded_file.name} ({uploaded_file.size:,} bytes)")
         
         # Tombol upload
         if st.button("📤 Upload Semua Video", type="primary"):
@@ -98,14 +41,22 @@ with tab1:
             
             for i, uploaded_file in enumerate(uploaded_files):
                 status_text.text(f"Mengupload {uploaded_file.name}...")
-                success, result = save_uploaded_file(uploaded_file)
                 
-                if success:
-                    success_count += 1
-                    st.success(f"✅ Berhasil upload: {uploaded_file.name}")
-                else:
+                try:
+                    # Upload via API
+                    files = {'file': (uploaded_file.name, uploaded_file.getvalue(), uploaded_file.type)}
+                    response = requests.post(f"{API_BASE_URL}/upload", files=files)
+                    
+                    if response.status_code == 200:
+                        success_count += 1
+                        st.success(f"✅ Berhasil upload: {uploaded_file.name}")
+                    else:
+                        error_count += 1
+                        st.error(f"❌ Gagal upload {uploaded_file.name}: {response.text}")
+                        
+                except Exception as e:
                     error_count += 1
-                    st.error(f"❌ Gagal upload {uploaded_file.name}: {result}")
+                    st.error(f"❌ Error upload {uploaded_file.name}: {str(e)}")
                 
                 progress_bar.progress((i + 1) / len(uploaded_files))
             
@@ -118,127 +69,146 @@ with tab1:
                 ✅ Berhasil: {success_count} file  
                 ❌ Gagal: {error_count} file
             """)
-            
-            if success_count > 0:
-                # Update refresh key untuk me-refresh uploader
-                st.session_state.refresh_key += 1
-                st.info("🔄 Halaman telah diupdate!")
 
 # Tab Video Library
 with tab2:
     st.header("Video Library")
     
-    # Dapatkan daftar video
-    videos = get_stored_videos()
-    
-    if not videos:
-        st.info("📭 Belum ada video yang diupload. Silakan upload video di tab 'Upload Video'")
-    else:
-        st.subheader(f"Daftar Video ({len(videos)} file)")
-        
-        # Filter pencarian
-        search_term = st.text_input("🔍 Cari video berdasarkan nama:")
-        if search_term:
-            videos = [v for v in videos if search_term.lower() in v['name'].lower()]
-            st.info(f"Ditemukan {len(videos)} hasil pencarian")
-        
-        # Tampilkan video dengan pagination
-        items_per_page = 10
-        page = st.number_input('Halaman', min_value=1, 
-                              max_value=max(1, (len(videos)//items_per_page)+1), 
-                              value=1, key="page_selector")
-        start_idx = (page-1) * items_per_page
-        end_idx = start_idx + items_per_page
-        
-        current_videos = videos[start_idx:end_idx]
-        
-        for video in current_videos:
-            with st.expander(f"🎬 {video['name']}", expanded=False):
-                col1, col2 = st.columns([2, 1])
+    try:
+        # Dapatkan daftar video dari API
+        response = requests.get(f"{API_BASE_URL}/videos")
+        if response.status_code == 200:
+            videos_data = response.json()
+            videos = videos_data.get('videos', [])
+            
+            if not videos:
+                st.info("📭 Belum ada video yang diupload.")
+            else:
+                st.subheader(f"Daftar Video ({len(videos)} file)")
                 
-                with col1:
-                    # Player video
-                    try:
-                        st.video(video['path'])
-                    except Exception as e:
-                        st.warning(f"⚠️ Tidak bisa memutar video: {str(e)}")
-                        st.download_button(
-                            label="📥 Download Video",
-                            data=open(video['path'], "rb"),
-                            file_name=video['name'],
-                            mime="video/mp4"
-                        )
-                    
-                with col2:
-                    st.write("**Detail File:**")
-                    st.write(f"📁 Nama: `{video['name']}`")
-                    st.write(f"💾 Ukuran: {video['size']:,} bytes")
-                    st.write(f"📅 Diupload: {video['date'].strftime('%Y-%m-%d %H:%M:%S')}")
-                    
-                    # Tombol download
-                    try:
-                        with open(video['path'], "rb") as file:
-                            btn = st.download_button(
-                                label="📥 Download Video",
-                                data=file,
-                                file_name=video['name'],
-                                mime="video/mp4"
-                            )
-                    except Exception as e:
-                        st.error(f"❌ Error saat menyiapkan download: {str(e)}")
-                    
-                    # Tombol hapus
-                    if st.button(f"🗑️ Hapus {video['name']}", key=f"delete_{video['name']}"):
-                        if delete_video(video['name']):
-                            st.success(f"✅ {video['name']} berhasil dihapus!")
-                            # Refresh setelah hapus
-                            st.session_state.refresh_key += 1
-                            st.experimental_rerun()  # Ini aman karena hanya dipanggil saat button clicked
-                        else:
-                            st.error("❌ Gagal menghapus file")
-        
-        # Pagination info
-        if videos:
-            st.caption(f"Menampilkan {start_idx+1}-{min(end_idx, len(videos))} dari {len(videos)} video")
+                # Filter pencarian
+                search_term = st.text_input("🔍 Cari video berdasarkan nama:")
+                if search_term:
+                    videos = [v for v in videos if search_term.lower() in v['filename'].lower()]
+                    st.info(f"Ditemukan {len(videos)} hasil pencarian")
+                
+                # Tampilkan video
+                for video in videos:
+                    with st.expander(f"🎬 {video['filename']}", expanded=False):
+                        col1, col2 = st.columns([2, 1])
+                        
+                        with col1:
+                            # Player video streaming
+                            video_url = f"{API_BASE_URL}/stream/{video['id']}"
+                            st.video(video_url)
+                            
+                        with col2:
+                            st.write("**Detail File:**")
+                            st.write(f"📁 Nama: `{video['filename']}`")
+                            st.write(f"💾 Ukuran: {video['size']:,} bytes")
+                            st.write(f"📅 Diupload: {video['upload_date']}")
+                            
+                            # Link streaming langsung
+                            st.markdown(f"[🔗 Link Streaming]({video_url})")
+                            
+                            # Tombol hapus
+                            if st.button(f"🗑️ Hapus", key=f"delete_{video['id']}"):
+                                try:
+                                    delete_response = requests.delete(f"{API_BASE_URL}/delete/{video['id']}")
+                                    if delete_response.status_code == 200:
+                                        st.success(f"✅ Video berhasil dihapus!")
+                                        st.experimental_rerun()
+                                    else:
+                                        st.error("❌ Gagal menghapus video")
+                                except Exception as e:
+                                    st.error(f"❌ Error: {str(e)}")
+        else:
+            st.error("❌ Gagal mengambil daftar video")
+            
+    except Exception as e:
+        st.error(f"❌ Error connecting to API: {str(e)}")
+        st.info("Pastikan server API sudah berjalan di port 8000")
 
-# Sidebar informasi
+# Tab API Info
+with tab3:
+    st.header("📱 API Documentation")
+    
+    st.subheader("📚 Endpoint yang Tersedia:")
+    
+    with st.expander("📤 Upload Video", expanded=True):
+        st.markdown("""
+        **POST** `/upload`
+        - Upload file video
+        - Content-Type: multipart/form-data
+        - Response: JSON dengan status dan info file
+        """)
+        st.code("""
+        curl -X POST \\
+          -F "file=@video.mp4" \\
+          http://localhost:8000/upload
+        """, language="bash")
+    
+    with st.expander("📋 Daftar Video", expanded=True):
+        st.markdown("""
+        **GET** `/videos`
+        - Mendapatkan daftar semua video
+        - Response: JSON array video info
+        """)
+        st.code("""
+        curl http://localhost:8000/videos
+        """, language="bash")
+    
+    with st.expander("▶️ Streaming Video", expanded=True):
+        st.markdown("""
+        **GET** `/stream/{video_id}`
+        - Streaming video berdasarkan ID
+        - Support range requests untuk seek
+        - Response: Video stream dengan headers yang sesuai
+        """)
+        st.code("""
+        curl http://localhost:8000/stream/12345
+        """, language="bash")
+    
+    with st.expander("🗑️ Hapus Video", expanded=True):
+        st.markdown("""
+        **DELETE** `/delete/{video_id}`
+        - Menghapus video berdasarkan ID
+        - Response: Status penghapusan
+        """)
+        st.code("""
+        curl -X DELETE http://localhost:8000/delete/12345
+        """, language="bash")
+    
+    st.subheader("🔧 Contoh Implementasi Frontend:")
+    st.code("""
+    // Streaming video di HTML5 player
+    <video controls>
+        <source src="http://localhost:8000/stream/12345" type="video/mp4">
+        Browser tidak support video.
+    </video>
+    """, language="html")
+    
+    st.info("💡 Video bisa di-stream langsung tanpa perlu download terlebih dahulu!")
+
+# Sidebar
 with st.sidebar:
-    st.header("📊 Informasi Penyimpanan")
+    st.header("📊 Status Server")
     
-    # Hitung total ukuran dan jumlah file
-    total_size = 0
-    total_files = 0
-    
-    if os.path.exists(UPLOAD_DIR):
-        for filename in os.listdir(UPLOAD_DIR):
-            file_path = os.path.join(UPLOAD_DIR, filename)
-            if os.path.isfile(file_path):
-                total_size += os.path.getsize(file_path)
-                total_files += 1
-    
-    st.metric("Total Video", f"{total_files} file")
-    st.metric("Total Ukuran", f"{total_size / (1024*1024):.2f} MB")
-    
-    st.divider()
-    
-    st.subheader("📁 Format yang Didukung:")
-    st.markdown("""
-    - MP4 (.mp4)
-    - AVI (.avi)
-    - MOV (.mov)
-    - MKV (.mkv)
-    - WEBM (.webm)
-    """)
+    try:
+        response = requests.get(f"{API_BASE_URL}/health")
+        if response.status_code == 200:
+            st.success("🟢 API Server Online")
+            data = response.json()
+            st.metric("Total Videos", data.get('total_videos', 0))
+            st.metric("Storage Used", data.get('storage_used', '0 MB'))
+        else:
+            st.error("🔴 API Server Offline")
+    except:
+        st.error("🔴 API Server Offline")
+        st.info("Jalankan API server dengan: `uvicorn api:app --reload`")
     
     st.divider()
-    
-    st.info("💡 Tips:\n- Gunakan nama file yang deskriptif\n- Periksa ukuran file sebelum upload\n- Video akan disimpan secara permanen")
-    
-    # Tombol refresh manual
-    if st.button("🔄 Refresh Library"):
-        st.session_state.refresh_key += 1
-        st.success("Library telah di-refresh!")
+    st.info("💡 Video di-stream langsung dari server tanpa perlu download!")
 
-# Footer
 st.markdown("---")
-st.caption("🛠️ Video Storage Manager | Dibuat dengan Streamlit")
+st.caption("🛠️ Video Storage & Streaming Manager | Dibuat dengan Streamlit + FastAPI")
