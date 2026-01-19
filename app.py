@@ -1,6 +1,5 @@
 import streamlit as st
 import os
-import shutil
 from datetime import datetime
 
 # Konfigurasi direktori penyimpanan
@@ -61,6 +60,10 @@ def delete_video(filename):
 st.title("🎥 Video Storage & Upload Manager")
 st.markdown("---")
 
+# Inisialisasi session state untuk refresh
+if 'refresh_key' not in st.session_state:
+    st.session_state.refresh_key = 0
+
 # Tabs untuk navigasi
 tab1, tab2 = st.tabs(["📤 Upload Video", "📁 Video Library"])
 
@@ -71,9 +74,9 @@ with tab1:
     # Upload multiple files
     uploaded_files = st.file_uploader(
         "Pilih satu atau lebih file video",
-        type=['mp4', 'avi', 'mov', 'mkv', 'webm'],
+        type=['mp4', '.avi', '.mov', '.mkv', '.webm'],
         accept_multiple_files=True,
-        key="video_uploader"
+        key=f"video_uploader_{st.session_state.refresh_key}"
     )
     
     if uploaded_files:
@@ -117,8 +120,9 @@ with tab1:
             """)
             
             if success_count > 0:
-                st.info("🔄 Halaman akan refresh dalam 3 detik...")
-                st.experimental_rerun()
+                # Update refresh key untuk me-refresh uploader
+                st.session_state.refresh_key += 1
+                st.info("🔄 Halaman telah diupdate!")
 
 # Tab Video Library
 with tab2:
@@ -132,9 +136,17 @@ with tab2:
     else:
         st.subheader(f"Daftar Video ({len(videos)} file)")
         
+        # Filter pencarian
+        search_term = st.text_input("🔍 Cari video berdasarkan nama:")
+        if search_term:
+            videos = [v for v in videos if search_term.lower() in v['name'].lower()]
+            st.info(f"Ditemukan {len(videos)} hasil pencarian")
+        
         # Tampilkan video dengan pagination
         items_per_page = 10
-        page = st.number_input('Halaman', min_value=1, max_value=(len(videos)//items_per_page)+1, value=1)
+        page = st.number_input('Halaman', min_value=1, 
+                              max_value=max(1, (len(videos)//items_per_page)+1), 
+                              value=1, key="page_selector")
         start_idx = (page-1) * items_per_page
         end_idx = start_idx + items_per_page
         
@@ -146,7 +158,16 @@ with tab2:
                 
                 with col1:
                     # Player video
-                    st.video(video['path'])
+                    try:
+                        st.video(video['path'])
+                    except Exception as e:
+                        st.warning(f"⚠️ Tidak bisa memutar video: {str(e)}")
+                        st.download_button(
+                            label="📥 Download Video",
+                            data=open(video['path'], "rb"),
+                            file_name=video['name'],
+                            mime="video/mp4"
+                        )
                     
                 with col2:
                     st.write("**Detail File:**")
@@ -155,24 +176,30 @@ with tab2:
                     st.write(f"📅 Diupload: {video['date'].strftime('%Y-%m-%d %H:%M:%S')}")
                     
                     # Tombol download
-                    with open(video['path'], "rb") as file:
-                        btn = st.download_button(
-                            label="📥 Download Video",
-                            data=file,
-                            file_name=video['name'],
-                            mime="video/mp4"
-                        )
+                    try:
+                        with open(video['path'], "rb") as file:
+                            btn = st.download_button(
+                                label="📥 Download Video",
+                                data=file,
+                                file_name=video['name'],
+                                mime="video/mp4"
+                            )
+                    except Exception as e:
+                        st.error(f"❌ Error saat menyiapkan download: {str(e)}")
                     
                     # Tombol hapus
                     if st.button(f"🗑️ Hapus {video['name']}", key=f"delete_{video['name']}"):
                         if delete_video(video['name']):
                             st.success(f"✅ {video['name']} berhasil dihapus!")
-                            st.experimental_rerun()
+                            # Refresh setelah hapus
+                            st.session_state.refresh_key += 1
+                            st.experimental_rerun()  # Ini aman karena hanya dipanggil saat button clicked
                         else:
                             st.error("❌ Gagal menghapus file")
         
         # Pagination info
-        st.caption(f"Menampilkan {start_idx+1}-{min(end_idx, len(videos))} dari {len(videos)} video")
+        if videos:
+            st.caption(f"Menampilkan {start_idx+1}-{min(end_idx, len(videos))} dari {len(videos)} video")
 
 # Sidebar informasi
 with st.sidebar:
@@ -206,6 +233,11 @@ with st.sidebar:
     st.divider()
     
     st.info("💡 Tips:\n- Gunakan nama file yang deskriptif\n- Periksa ukuran file sebelum upload\n- Video akan disimpan secara permanen")
+    
+    # Tombol refresh manual
+    if st.button("🔄 Refresh Library"):
+        st.session_state.refresh_key += 1
+        st.success("Library telah di-refresh!")
 
 # Footer
 st.markdown("---")
