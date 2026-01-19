@@ -11,16 +11,126 @@ import requests
 import sqlite3
 from pathlib import Path
 
-# ... (semua import dan fungsi yang sudah ada tetap sama) ...
+# Install required packages
+try:
+    import streamlit as st
+except ImportError:
+    subprocess.check_call([sys.executable, "-m", "pip", "install", "streamlit"])
+    import streamlit as st
+
+# ... (semua import dan fungsi yang sudah ada tetap sama sampai init_database) ...
+
+def init_database():
+    """Initialize SQLite database for persistent logs"""
+    try:
+        db_path = Path("streaming_logs.db")
+        conn = sqlite3.connect(db_path)
+        cursor = conn.cursor()
+        
+        # Create logs table
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS streaming_logs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                timestamp TEXT NOT NULL,
+                session_id TEXT NOT NULL,
+                log_type TEXT NOT NULL,
+                message TEXT NOT NULL,
+                video_file TEXT,
+                stream_key TEXT,
+                channel_name TEXT
+            )
+        ''')
+        
+        # Create streaming_sessions table
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS streaming_sessions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                session_id TEXT UNIQUE NOT NULL,
+                start_time TEXT NOT NULL,
+                end_time TEXT,
+                video_file TEXT,
+                stream_title TEXT,
+                stream_description TEXT,
+                tags TEXT,
+                category TEXT,
+                privacy_status TEXT,
+                made_for_kids BOOLEAN,
+                channel_name TEXT,
+                status TEXT DEFAULT 'active'
+            )
+        ''')
+        
+        # Create saved_channels table for persistent authentication
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS saved_channels (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                channel_name TEXT UNIQUE NOT NULL,
+                channel_id TEXT NOT NULL,
+                auth_data TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                last_used TEXT NOT NULL
+            )
+        ''')
+        
+        # Create videos table for storing uploaded videos
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS videos (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                filename TEXT NOT NULL,
+                file_path TEXT NOT NULL,
+                upload_time TEXT NOT NULL,
+                file_size INTEGER,
+                duration REAL
+            )
+        ''')
+        
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        st.error(f"Database initialization error: {e}")
+
+# ... (semua fungsi lainnya sampai format_bytes) ...
+
+def format_bytes(bytes_size):
+    """Format bytes to human readable format"""
+    for unit in ['B', 'KB', 'MB', 'GB']:
+        if bytes_size < 1024.0:
+            return f"{bytes_size:.1f} {unit}"
+        bytes_size /= 1024.0
+    return f"{bytes_size:.1f} TB"
 
 def main():
-    # ... (setup awal yang sudah ada) ...
+    # Page configuration must be the first Streamlit command
+    st.set_page_config(
+        page_title="Advanced YouTube Live Streaming",
+        page_icon="📺",
+        layout="wide"
+    )
     
-    # Tabs for main interface
+    # Initialize database
+    init_database()
+    
+    # Initialize session state
+    if 'session_id' not in st.session_state:
+        st.session_state['session_id'] = f"session_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+    
+    if 'live_logs' not in st.session_state:
+        st.session_state['live_logs'] = []
+    
+    st.title("🎥 Advanced YouTube Live Streaming Platform")
+    st.markdown("---")
+    
+    # Auto-process authorization code if present
+    auto_process_auth_code()
+    
+    # Main content with tabs - harus dalam context yang benar
     tab1, tab2, tab3 = st.tabs(["📺 Streaming", "📁 Video Library", "⚙️ Configuration"])
     
-    # ... (tab1 dan tab3 tetap sama) ...
-    
+    with tab1:
+        # ... (seluruh konten tab streaming yang sudah ada) ...
+        st.header("📺 Streaming Tab Content")
+        st.info("Streaming content would go here...")
+        
     with tab2:
         st.header("📁 Video Library")
         
@@ -71,6 +181,7 @@ def main():
                 
                 if uploaded_count > 0:
                     st.success(f"✅ Successfully uploaded {uploaded_count} videos! {f'(Errors: {error_count})' if error_count > 0 else ''}")
+                    time.sleep(1)
                     st.rerun()
                 else:
                     st.error("❌ No videos were uploaded successfully")
@@ -135,6 +246,7 @@ def main():
                             
                             if imported_count > 0:
                                 st.success(f"✅ Successfully imported {imported_count} videos! {f'(Errors: {error_count})' if error_count > 0 else ''}")
+                                time.sleep(1)
                                 st.rerun()
                             else:
                                 st.error("❌ No videos were imported successfully")
@@ -277,6 +389,7 @@ def main():
                     
                     if cleaned_count > 0:
                         st.success(f"Cleaned {cleaned_count} missing file records")
+                        time.sleep(1)
                         st.rerun()
                     else:
                         st.info("No missing files found")
@@ -323,20 +436,28 @@ def main():
                         conn.close()
                         
                         st.success("All videos deleted!")
+                        time.sleep(1)
                         st.rerun()
                         
                     except Exception as e:
                         st.error(f"Error deleting all videos: {str(e)}")
+    
+    with tab3:
+        st.header("⚙️ Configuration")
+        st.info("Configuration content would go here...")
+
+# ... (semua fungsi lainnya yang sudah ada) ...
 
 # Helper function untuk format bytes
 def format_bytes(bytes_size):
+    """Format bytes to human readable format"""
     for unit in ['B', 'KB', 'MB', 'GB']:
         if bytes_size < 1024.0:
             return f"{bytes_size:.1f} {unit}"
         bytes_size /= 1024.0
     return f"{bytes_size:.1f} TB"
 
-# ... (fungsi-fungsi lainnya tetap sama) ...
+# ... (semua fungsi lainnya sampai akhir) ...
 
 if __name__ == '__main__':
     main()
