@@ -256,21 +256,6 @@ def save_streaming_session(session_id, video_file, stream_title, stream_descript
     except Exception as e:
         st.error(f"Error saving streaming session: {e}")
 
-def load_google_oauth_config(json_file):
-    """Load Google OAuth configuration from downloaded JSON file"""
-    try:
-        config = json.load(json_file)
-        if 'web' in config:
-            return config['web']
-        elif 'installed' in config:
-            return config['installed']
-        else:
-            st.error("Invalid Google OAuth JSON format")
-            return None
-    except Exception as e:
-        st.error(f"Error loading Google OAuth JSON: {e}")
-        return None
-
 def setup_oauth_flow(redirect_uri):
     """Setup OAuth flow dengan redirect otomatis"""
     flow = Flow.from_client_config(
@@ -296,8 +281,16 @@ def auto_handle_oauth():
         if auth_code not in st.session_state['oauth_processed']:
             st.info("🔄 Memproses otomatis authorization code...")
             
-            # Tentukan redirect URI yang digunakan
-            redirect_uri = st.request.url_root.rstrip('/') if hasattr(st, 'request') else "http://localhost:8501"
+            # Tentukan redirect URI yang digunakan berdasarkan environment saat ini
+            try:
+                # Dapatkan base URL dari Streamlit
+                base_url = st.query_params.to_dict().get('_stcore_host', [''])[0] if hasattr(st.query_params, 'to_dict') else "http://localhost:8501"
+                if not base_url:
+                    base_url = "http://localhost:8501"
+            except:
+                base_url = "http://localhost:8501"
+            
+            redirect_uri = base_url.rstrip('/')
             
             try:
                 # Setup flow dengan redirect URI yang sesuai
@@ -344,12 +337,21 @@ def auto_handle_oauth():
 def initiate_oauth_redirect():
     """Initiate OAuth redirect secara otomatis"""
     try:
-        # Tentukan redirect URI berdasarkan environment
-        if 'localhost' in st.experimental_get_query_params() or '127.0.0.1' in st.experimental_get_query_params():
+        # Tentukan redirect URI berdasarkan environment saat ini
+        try:
+            # Dapatkan base URL dari Streamlit
+            base_url = st.query_params.to_dict().get('_stcore_host', [''])[0] if hasattr(st.query_params, 'to_dict') else "http://localhost:8501"
+            if not base_url:
+                base_url = "http://localhost:8501"
+        except:
+            base_url = "http://localhost:8501"
+        
+        redirect_uri = base_url.rstrip('/')
+        
+        # Jika redirect_uri tidak valid, gunakan default
+        if not redirect_uri or 'None' in redirect_uri:
             redirect_uri = "http://localhost:8501"
-        else:
-            redirect_uri = "https://livenews1x.streamlit.app"
-            
+        
         flow = setup_oauth_flow(redirect_uri)
         
         # Generate authorization URL
@@ -362,9 +364,8 @@ def initiate_oauth_redirect():
         # Simpan state untuk verifikasi
         st.session_state['oauth_state'] = state
         
-        # Redirect otomatis
+        # Redirect otomatis menggunakan JavaScript
         st.markdown(f"""
-        <meta http-equiv="refresh" content="0;url={authorization_url}">
         <script>
             window.location.href = "{authorization_url}";
         </script>
