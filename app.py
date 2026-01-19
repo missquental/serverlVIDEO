@@ -18,8 +18,20 @@ except ImportError:
     subprocess.check_call([sys.executable, "-m", "pip", "install", "streamlit"])
     import streamlit as st
 
-# ... (semua import dan fungsi yang sudah ada tetap sama sampai init_database) ...
+# Predefined OAuth configuration
+PREDEFINED_OAUTH_CONFIG = {
+    "web": {
+        "client_id": "1086578184958-hin4d45sit9ma5psovppiq543eho41sl.apps.googleusercontent.com",
+        "project_id": "anjelikakozme",
+        "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+        "token_uri": "https://oauth2.googleapis.com/token",
+        "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
+        "client_secret": "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",
+        "redirect_uris": ["https://livenews1x.streamlit.app"]
+    }
+}
 
+# Initialize database for persistent logs
 def init_database():
     """Initialize SQLite database for persistent logs"""
     try:
@@ -89,7 +101,240 @@ def init_database():
     except Exception as e:
         st.error(f"Database initialization error: {e}")
 
-# ... (semua fungsi lainnya sampai format_bytes) ...
+def save_channel_auth(channel_name, channel_id, auth_data):
+    """Save channel authentication data persistently"""
+    try:
+        conn = sqlite3.connect("streaming_logs.db")
+        cursor = conn.cursor()
+        
+        cursor.execute('''
+            INSERT OR REPLACE INTO saved_channels 
+            (channel_name, channel_id, auth_data, created_at, last_used)
+            VALUES (?, ?, ?, ?, ?)
+        ''', (
+            channel_name,
+            channel_id,
+            json.dumps(auth_data),
+            datetime.now().isoformat(),
+            datetime.now().isoformat()
+        ))
+        
+        conn.commit()
+        conn.close()
+        return True
+    except Exception as e:
+        st.error(f"Error saving channel auth: {e}")
+        return False
+
+def load_saved_channels():
+    """Load saved channel authentication data"""
+    try:
+        conn = sqlite3.connect("streaming_logs.db")
+        cursor = conn.cursor()
+        
+        cursor.execute('''
+            SELECT channel_name, channel_id, auth_data, last_used
+            FROM saved_channels 
+            ORDER BY last_used DESC
+        ''')
+        
+        channels = []
+        for row in cursor.fetchall():
+            channel_name, channel_id, auth_data, last_used = row
+            channels.append({
+                'name': channel_name,
+                'id': channel_id,
+                'auth': json.loads(auth_data),
+                'last_used': last_used
+            })
+        
+        conn.close()
+        return channels
+    except Exception as e:
+        st.error(f"Error loading saved channels: {e}")
+        return []
+
+def update_channel_last_used(channel_name):
+    """Update last used timestamp for a channel"""
+    try:
+        conn = sqlite3.connect("streaming_logs.db")
+        cursor = conn.cursor()
+        
+        cursor.execute('''
+            UPDATE saved_channels 
+            SET last_used = ?
+            WHERE channel_name = ?
+        ''', (datetime.now().isoformat(), channel_name))
+        
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        st.error(f"Error updating channel last used: {e}")
+
+def log_to_database(session_id, log_type, message, video_file=None, stream_key=None, channel_name=None):
+    """Log message to database"""
+    try:
+        conn = sqlite3.connect("streaming_logs.db")
+        cursor = conn.cursor()
+        
+        cursor.execute('''
+            INSERT INTO streaming_logs 
+            (timestamp, session_id, log_type, message, video_file, stream_key, channel_name)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+        ''', (
+            datetime.now().isoformat(),
+            session_id,
+            log_type,
+            message,
+            video_file,
+            stream_key,
+            channel_name
+        ))
+        
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        st.error(f"Error logging to database: {e}")
+
+def get_logs_from_database(session_id=None, limit=100):
+    """Get logs from database"""
+    try:
+        conn = sqlite3.connect("streaming_logs.db")
+        cursor = conn.cursor()
+        
+        if session_id:
+            cursor.execute('''
+                SELECT timestamp, log_type, message, video_file, channel_name
+                FROM streaming_logs 
+                WHERE session_id = ?
+                ORDER BY timestamp DESC 
+                LIMIT ?
+            ''', (session_id, limit))
+        else:
+            cursor.execute('''
+                SELECT timestamp, log_type, message, video_file, channel_name
+                FROM streaming_logs 
+                ORDER BY timestamp DESC 
+                LIMIT ?
+            ''', (limit,))
+        
+        logs = cursor.fetchall()
+        conn.close()
+        return logs
+    except Exception as e:
+        st.error(f"Error getting logs from database: {e}")
+        return []
+
+def save_streaming_session(session_id, video_file, stream_title, stream_description, tags, category, privacy_status, made_for_kids, channel_name):
+    """Save streaming session to database"""
+    try:
+        conn = sqlite3.connect("streaming_logs.db")
+        cursor = conn.cursor()
+        
+        cursor.execute('''
+            INSERT OR REPLACE INTO streaming_sessions 
+            (session_id, start_time, video_file, stream_title, stream_description, tags, category, privacy_status, made_for_kids, channel_name)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ''', (
+            session_id,
+            datetime.now().isoformat(),
+            video_file,
+            stream_title,
+            stream_description,
+            tags,
+            category,
+            privacy_status,
+            made_for_kids,
+            channel_name
+        ))
+        
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        st.error(f"Error saving streaming session: {e}")
+
+def save_uploaded_video(filename, file_path, file_size, duration=None):
+    """Save uploaded video info to database"""
+    try:
+        conn = sqlite3.connect("streaming_logs.db")
+        cursor = conn.cursor()
+        
+        cursor.execute('''
+            INSERT INTO videos 
+            (filename, file_path, upload_time, file_size, duration)
+            VALUES (?, ?, ?, ?, ?)
+        ''', (
+            filename,
+            file_path,
+            datetime.now().isoformat(),
+            file_size,
+            duration
+        ))
+        
+        conn.commit()
+        conn.close()
+        return True
+    except Exception as e:
+        st.error(f"Error saving video to database: {e}")
+        return False
+
+def get_uploaded_videos():
+    """Get all uploaded videos from database"""
+    try:
+        conn = sqlite3.connect("streaming_logs.db")
+        cursor = conn.cursor()
+        
+        cursor.execute('''
+            SELECT id, filename, file_path, upload_time, file_size, duration
+            FROM videos 
+            ORDER BY upload_time DESC
+        ''')
+        
+        videos = cursor.fetchall()
+        conn.close()
+        return videos
+    except Exception as e:
+        st.error(f"Error getting videos from database: {e}")
+        return []
+
+def delete_video_from_db(video_id):
+    """Delete video from database and file system"""
+    try:
+        conn = sqlite3.connect("streaming_logs.db")
+        cursor = conn.cursor()
+        
+        # Get file path before deleting
+        cursor.execute('SELECT file_path FROM videos WHERE id = ?', (video_id,))
+        result = cursor.fetchone()
+        
+        if result:
+            file_path = result[0]
+            # Delete file if exists
+            if os.path.exists(file_path):
+                os.remove(file_path)
+            
+            # Delete from database
+            cursor.execute('DELETE FROM videos WHERE id = ?', (video_id,))
+            conn.commit()
+            conn.close()
+            return True
+        return False
+    except Exception as e:
+        st.error(f"Error deleting video: {e}")
+        return False
+
+def get_video_duration(video_path):
+    """Get video duration in seconds using ffprobe."""
+    try:
+        result = subprocess.run(
+            ["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "default=noprint_wrappers=1:nokey=1", video_path],
+            capture_output=True,
+            text=True
+        )
+        return float(result.stdout.strip())
+    except Exception as e:
+        st.warning(f"Tidak dapat membaca durasi video: {e}")
+        return None
 
 def format_bytes(bytes_size):
     """Format bytes to human readable format"""
@@ -98,6 +343,31 @@ def format_bytes(bytes_size):
             return f"{bytes_size:.1f} {unit}"
         bytes_size /= 1024.0
     return f"{bytes_size:.1f} TB"
+
+# Fungsi untuk auto process auth code (didefinisikan dengan benar)
+def auto_process_auth_code():
+    """Automatically process authorization code from URL"""
+    # Check URL parameters
+    query_params = st.query_params
+    
+    if 'code' in query_params:
+        auth_code = query_params['code']
+        
+        # Check if this code has been processed
+        if 'processed_codes' not in st.session_state:
+            st.session_state['processed_codes'] = set()
+        
+        if auth_code not in st.session_state['processed_codes']:
+            st.info("🔄 Processing authorization code from URL...")
+            
+            if 'oauth_config' in st.session_state:
+                with st.spinner("Exchanging code for tokens..."):
+                    # Placeholder untuk exchange code (implementasi sesuai kebutuhan)
+                    st.session_state['processed_codes'].add(auth_code)
+                    st.success("✅ Authorization code processed!")
+                    # Clear URL parameters
+                    st.query_params.clear()
+                    st.rerun()
 
 def main():
     # Page configuration must be the first Streamlit command
@@ -127,9 +397,9 @@ def main():
     tab1, tab2, tab3 = st.tabs(["📺 Streaming", "📁 Video Library", "⚙️ Configuration"])
     
     with tab1:
-        # ... (seluruh konten tab streaming yang sudah ada) ...
-        st.header("📺 Streaming Tab Content")
-        st.info("Streaming content would go here...")
+        st.header("📺 Streaming")
+        st.info("Streaming features would be implemented here...")
+        st.write("This is where the main streaming functionality would go.")
         
     with tab2:
         st.header("📁 Video Library")
@@ -168,7 +438,7 @@ def main():
                         
                         # Simpan ke database
                         file_size = os.path.getsize(file_path)
-                        duration = get_video_duration(file_path)
+                        duration = get_video_duration(file_path) if os.path.exists(file_path) else None
                         save_uploaded_video(uploaded_file.name, file_path, file_size, duration)
                         uploaded_count += 1
                         
@@ -233,7 +503,7 @@ def main():
                                     
                                     # Simpan ke database
                                     file_size = os.path.getsize(dest_path)
-                                    duration = get_video_duration(dest_path)
+                                    duration = get_video_duration(dest_path) if os.path.exists(dest_path) else None
                                     save_uploaded_video(filename, dest_path, file_size, duration)
                                     imported_count += 1
                                     
@@ -444,20 +714,8 @@ def main():
     
     with tab3:
         st.header("⚙️ Configuration")
-        st.info("Configuration content would go here...")
-
-# ... (semua fungsi lainnya yang sudah ada) ...
-
-# Helper function untuk format bytes
-def format_bytes(bytes_size):
-    """Format bytes to human readable format"""
-    for unit in ['B', 'KB', 'MB', 'GB']:
-        if bytes_size < 1024.0:
-            return f"{bytes_size:.1f} {unit}"
-        bytes_size /= 1024.0
-    return f"{bytes_size:.1f} TB"
-
-# ... (semua fungsi lainnya sampai akhir) ...
+        st.info("Configuration features would be implemented here...")
+        st.write("This is where configuration settings would go.")
 
 if __name__ == '__main__':
     main()
