@@ -22,3 +22,5 @@ ffprobe
 fastapi
 uvicorn
 python-multipart
+gTTS 
+moviepy
